@@ -1,0 +1,1892 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>AI Payment Recovery</title>
+
+    <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+
+    <style>
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            background: #f5f7fb;
+            margin: 0;
+            color: #111827;
+        }
+
+        .container {
+            max-width: 1100px;
+            margin: auto;
+            padding: 30px 20px;
+        }
+
+        /* HEADER */
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 25px;
+        }
+
+        h1 {
+            margin: 0;
+        }
+
+        .test-mode {
+            background: #fef3c7;
+            color: #92400e;
+            padding: 7px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+
+        /* CARDS */
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns:
+                repeat(4, 1fr);
+            gap: 15px;
+            margin-bottom: 25px;
+        }
+
+        .stat-card {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow:
+                0 3px 15px rgba(0,0,0,0.06);
+        }
+
+        .stat-title {
+            color: #6b7280;
+            font-size: 14px;
+        }
+
+        .stat-value {
+            font-size: 28px;
+            font-weight: bold;
+            margin-top: 8px;
+        }
+
+        /* PAYMENT SECTION */
+
+        .payment-section {
+            background: white;
+            padding: 30px;
+            border-radius: 14px;
+            box-shadow:
+                0 3px 15px rgba(0,0,0,0.06);
+
+            max-width: 540px;
+            margin: 0 auto 25px auto;
+        }
+
+        .payment-section h2 {
+            margin-top: 0;
+        }
+
+        label {
+            display: block;
+            margin-top: 20px;
+            margin-bottom: 8px;
+            font-weight: bold;
+        }
+
+        input {
+            width: 100%;
+            padding: 13px;
+            border: 1px solid #d1d5db;
+            border-radius: 7px;
+            font-size: 16px;
+        }
+
+        button {
+            width: 100%;
+            margin-top: 16px;
+            padding: 13px;
+            border: none;
+            border-radius: 7px;
+            background: #2563eb;
+            color: white;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background: #1d4ed8;
+        }
+
+        button:disabled {
+            background: #9ca3af;
+        }
+
+        /* MESSAGE */
+
+        #message {
+            display: none;
+            margin-top: 18px;
+            padding: 13px;
+            border-radius: 7px;
+        }
+
+        .success {
+            background: #dcfce7;
+            color: #166534;
+        }
+
+        .error {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .info {
+            background: #dbeafe;
+            color: #1e40af;
+        }
+
+        /* RECOVERY */
+
+        #recoveryCard {
+            display: none;
+            margin-top: 20px;
+            padding: 20px;
+            background: #fff7ed;
+            border: 1px solid #fed7aa;
+            border-radius: 12px;
+        }
+
+        #recoveryCard h3 {
+            color: #9a3412;
+            margin-top: 0;
+        }
+
+        .recovery-row {
+            margin: 12px 0;
+        }
+
+        .recovery-label {
+            font-weight: bold;
+        }
+
+        .recovery-value {
+            margin-top: 4px;
+            color: #4b5563;
+        }
+
+        .priority {
+            display: inline-block;
+            background: #fed7aa;
+            color: #9a3412;
+            padding: 5px 10px;
+            border-radius: 15px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+
+        .retry-button {
+            background: #ea580c;
+        }
+
+        .retry-button:hover {
+            background: #c2410c;
+        }
+
+        /* DASHBOARD */
+
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns:
+                2fr 1fr;
+
+            gap: 20px;
+        }
+
+        .panel {
+            background: white;
+            padding: 22px;
+            border-radius: 12px;
+            box-shadow:
+                0 3px 15px rgba(0,0,0,0.06);
+        }
+
+        .panel h2 {
+            margin-top: 0;
+        }
+
+        /* TABLE */
+
+        .table-wrapper {
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th,
+        td {
+            padding: 12px 10px;
+            text-align: left;
+            border-bottom: 1px solid #e5e7eb;
+            font-size: 14px;
+        }
+
+        th {
+            color: #6b7280;
+            font-size: 13px;
+        }
+
+        .status {
+            padding: 5px 9px;
+            border-radius: 15px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+
+        .status-success {
+            background: #dcfce7;
+            color: #166534;
+        }
+
+        .status-failed {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .status-created {
+            background: #fef3c7;
+            color: #92400e;
+        }
+
+        /* FAILURE ANALYTICS */
+
+        .failure-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 14px 0;
+            border-bottom: 1px solid #e5e7eb;
+        }
+
+        .failure-name {
+            font-weight: bold;
+        }
+
+        .failure-count {
+            background: #f3f4f6;
+            padding: 4px 9px;
+            border-radius: 15px;
+            font-size: 12px;
+        }
+
+        .empty {
+            color: #6b7280;
+            text-align: center;
+            padding: 20px;
+        }
+
+        .refresh-button {
+            background: #111827;
+            margin-top: 15px;
+        }
+
+        .refresh-button:hover {
+            background: #374151;
+        }
+
+        /* RESPONSIVE */
+
+        @media (max-width: 850px) {
+
+            .stats-grid {
+                grid-template-columns:
+                    repeat(2, 1fr);
+            }
+
+            .dashboard-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        @media (max-width: 500px) {
+
+            .stats-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+    </style>
+
+</head>
+
+
+<body>
+
+<div class="container">
+
+    <!-- =========================================
+         HEADER
+    ========================================== -->
+
+    <div class="header">
+
+        <div>
+
+            <h1>
+                AI Payment Recovery
+            </h1>
+
+            <p>
+                Intelligent payment failure detection and recovery
+            </p>
+
+        </div>
+
+        <span class="test-mode">
+            TEST MODE
+        </span>
+
+    </div>
+
+
+    <!-- =========================================
+         STATS
+    ========================================== -->
+
+    <div class="stats-grid">
+
+        <div class="stat-card">
+
+            <div class="stat-title">
+                Total Payments
+            </div>
+
+            <div
+                class="stat-value"
+                id="totalPayments"
+            >
+                0
+            </div>
+
+        </div>
+
+
+        <div class="stat-card">
+
+            <div class="stat-title">
+                Successful
+            </div>
+
+            <div
+                class="stat-value"
+                id="successfulPayments"
+            >
+                0
+            </div>
+
+        </div>
+
+
+        <div class="stat-card">
+
+            <div class="stat-title">
+                Failed
+            </div>
+
+            <div
+                class="stat-value"
+                id="failedPayments"
+            >
+                0
+            </div>
+
+        </div>
+
+
+        <div class="stat-card">
+
+            <div class="stat-title">
+                Recovery Rate
+            </div>
+
+            <div
+                class="stat-value"
+                id="recoveryRate"
+            >
+                0%
+            </div>
+
+        </div>
+
+    </div>
+
+
+    <!-- =========================================
+         PAYMENT
+    ========================================== -->
+
+    <div class="payment-section">
+
+        <h2>
+            Test Payment
+        </h2>
+
+        <p>
+            Create a Razorpay test payment.
+        </p>
+
+
+        <label for="amount">
+            Amount (₹)
+        </label>
+
+
+        <input
+            type="number"
+            id="amount"
+            placeholder="Enter amount"
+            min="1"
+            step="0.01"
+        >
+
+
+        <button
+            id="payButton"
+            onclick="createOrder()"
+        >
+            Pay Now
+        </button>
+
+
+        <div id="message"></div>
+
+
+        <!-- RECOVERY -->
+
+        <div id="recoveryCard">
+
+            <h3>
+                Payment Recovery
+            </h3>
+
+
+            <div class="recovery-row">
+
+                <div class="recovery-label">
+                    Failure Reason
+                </div>
+
+                <div
+                    class="recovery-value"
+                    id="failureReason"
+                >
+                    -
+                </div>
+
+            </div>
+
+
+            <div class="recovery-row">
+
+                <div class="recovery-label">
+                    Failure Category
+                </div>
+
+                <div
+                    class="recovery-value"
+                    id="failureCategory"
+                >
+                    -
+                </div>
+
+            </div>
+
+
+            <div class="recovery-row">
+
+                <div class="recovery-label">
+                    Recommended Method
+                </div>
+
+                <div
+                    class="recovery-value"
+                    id="recommendedMethod"
+                >
+                    -
+                </div>
+
+            </div>
+
+
+            <div class="recovery-row">
+
+                <div class="recovery-label">
+                    Priority
+                </div>
+
+                <div class="recovery-value">
+
+                    <span
+                        class="priority"
+                        id="priority"
+                    >
+                        -
+                    </span>
+
+                </div>
+
+            </div>
+
+
+            <div class="recovery-row">
+
+                <div class="recovery-label">
+                    Recommendation
+                </div>
+
+                <div
+                    class="recovery-value"
+                    id="recoveryMessage"
+                >
+                    -
+                </div>
+
+            </div>
+
+
+            <button
+                class="retry-button"
+                onclick="retryPayment()"
+            >
+                Retry Payment
+            </button>
+
+        </div>
+
+    </div>
+
+
+    <!-- =========================================
+         DASHBOARD
+    ========================================== -->
+
+    <div class="dashboard-grid">
+
+
+        <!-- PAYMENT HISTORY -->
+
+        <div class="panel">
+
+            <h2>
+                Payment History
+            </h2>
+
+            <div class="table-wrapper">
+
+                <table>
+
+                    <thead>
+
+                        <tr>
+
+                            <th>
+                                Order ID
+                            </th>
+
+                            <th>
+                                Amount
+                            </th>
+
+                            <th>
+                                Status
+                            </th>
+
+                            <th>
+                                Failure Reason
+                            </th>
+
+                        </tr>
+
+                    </thead>
+
+
+                    <tbody id="paymentTable">
+
+                        <tr>
+
+                            <td
+                                colspan="4"
+                                class="empty"
+                            >
+                                Loading payments...
+                            </td>
+
+                        </tr>
+
+                    </tbody>
+
+                </table>
+
+            </div>
+
+
+            <button
+                class="refresh-button"
+                onclick="loadDashboard()"
+            >
+                Refresh Dashboard
+            </button>
+
+        </div>
+
+
+        <!-- FAILURE ANALYTICS -->
+
+        <div class="panel">
+
+            <h2>
+                Failure Analytics
+            </h2>
+
+            <div id="failureAnalytics">
+
+                <div class="empty">
+                    Loading analytics...
+                </div>
+
+            </div>
+
+        </div>
+
+    </div>
+
+</div>
+
+
+<script>
+
+/* ==================================================
+   GLOBAL VARIABLES
+================================================== */
+
+let lastFailedOrderId = null;
+
+let paymentFailureHandled = false;
+
+
+/* ==================================================
+   PAGE LOAD
+================================================== */
+
+document.addEventListener(
+    "DOMContentLoaded",
+    function() {
+
+        loadDashboard();
+
+    }
+);
+
+
+/* ==================================================
+   LOAD DASHBOARD
+================================================== */
+
+async function loadDashboard() {
+
+    try {
+
+        await Promise.all([
+
+            loadStats(),
+
+            loadPayments()
+
+        ]);
+
+    }
+
+    catch (error) {
+
+        console.error(
+            "Dashboard error:",
+            error
+        );
+
+    }
+
+}
+
+
+/* ==================================================
+   LOAD STATISTICS
+================================================== */
+
+async function loadStats() {
+
+    const response =
+        await fetch(
+            "/payment-stats"
+        );
+
+
+    const data =
+        await response.json();
+
+
+    if (!data) {
+        return;
+    }
+
+
+    document.getElementById(
+        "totalPayments"
+    ).innerText =
+        data.total_payments || 0;
+
+
+    document.getElementById(
+        "successfulPayments"
+    ).innerText =
+        data.successful_payments || 0;
+
+
+    document.getElementById(
+        "failedPayments"
+    ).innerText =
+        data.failed_payments || 0;
+
+
+    document.getElementById(
+        "recoveryRate"
+    ).innerText =
+        data.recovery_rate || "0%";
+
+}
+
+
+/* ==================================================
+   LOAD PAYMENTS
+================================================== */
+
+async function loadPayments() {
+
+    const response =
+        await fetch(
+            "/payments"
+        );
+
+
+    const data =
+        await response.json();
+
+
+    if (!data.success) {
+        return;
+    }
+
+
+    renderPaymentTable(
+        data.payments
+    );
+
+
+    renderFailureAnalytics(
+        data.payments
+    );
+
+}
+
+
+/* ==================================================
+   PAYMENT TABLE
+================================================== */
+
+function renderPaymentTable(
+    payments
+) {
+
+    const table =
+        document.getElementById(
+            "paymentTable"
+        );
+
+
+    table.innerHTML = "";
+
+
+    if (
+        !payments ||
+        payments.length === 0
+    ) {
+
+        table.innerHTML = `
+            <tr>
+                <td
+                    colspan="4"
+                    class="empty"
+                >
+                    No payments found.
+                </td>
+            </tr>
+        `;
+
+        return;
+    }
+
+
+    payments.forEach(
+        function(payment) {
+
+            let statusClass =
+                "status-created";
+
+
+            if (
+                payment.status ===
+                "SUCCESS"
+            ) {
+
+                statusClass =
+                    "status-success";
+
+            }
+
+
+            else if (
+                payment.status ===
+                "FAILED"
+            ) {
+
+                statusClass =
+                    "status-failed";
+
+            }
+
+            else if (
+                payment.status ===
+                "RECOVERED"
+            ) {
+
+                statusClass =
+                    "status-success";
+
+            }
+
+
+            const row =
+                document.createElement(
+                    "tr"
+                );
+
+
+            row.innerHTML = `
+
+                <td>
+                    ${escapeHtml(
+                        payment.order_id ||
+                        "-"
+                    )}
+                </td>
+
+                <td>
+                    ₹${formatAmount(
+                        payment.amount
+                    )}
+                </td>
+
+                <td>
+
+                    <span
+                        class="status ${statusClass}"
+                    >
+                        ${escapeHtml(
+                            payment.status ||
+                            "UNKNOWN"
+                        )}
+                    </span>
+
+                </td>
+
+                <td>
+                    ${escapeHtml(
+                        payment.failure_reason ||
+                        "-"
+                    )}
+                </td>
+
+            `;
+
+
+            table.appendChild(
+                row
+            );
+
+        }
+    );
+
+}
+
+
+/* ==================================================
+   FAILURE ANALYTICS
+================================================== */
+
+function renderFailureAnalytics(
+    payments
+) {
+
+    const container =
+        document.getElementById(
+            "failureAnalytics"
+        );
+
+
+    const failures = {};
+
+
+    payments.forEach(
+        function(payment) {
+
+            if (
+                payment.status !==
+                "FAILED"
+            ) {
+
+                return;
+
+            }
+
+
+            const reason =
+                payment.failure_reason ||
+                "Unknown Failure";
+
+
+            let category =
+                getFailureCategory(
+                    reason
+                );
+
+
+            if (
+                !failures[category]
+            ) {
+
+                failures[category] = 0;
+
+            }
+
+
+            failures[category]++;
+
+        }
+    );
+
+
+    const categories =
+        Object.keys(
+            failures
+        );
+
+
+    if (
+        categories.length === 0
+    ) {
+
+        container.innerHTML = `
+            <div class="empty">
+                No failed payments yet.
+            </div>
+        `;
+
+        return;
+    }
+
+
+    container.innerHTML = "";
+
+
+    categories
+        .sort(
+            function(a, b) {
+
+                return (
+                    failures[b] -
+                    failures[a]
+                );
+
+            }
+        )
+        .forEach(
+            function(category) {
+
+                const item =
+                    document.createElement(
+                        "div"
+                    );
+
+
+                item.className =
+                    "failure-item";
+
+
+                item.innerHTML = `
+
+                    <span class="failure-name">
+                        ${escapeHtml(
+                            category
+                        )}
+                    </span>
+
+                    <span class="failure-count">
+                        ${failures[category]}
+                    </span>
+
+                `;
+
+
+                container.appendChild(
+                    item
+                );
+
+            }
+        );
+
+}
+
+
+/* ==================================================
+   FAILURE CATEGORY
+================================================== */
+
+function getFailureCategory(
+    reason
+) {
+
+    const text =
+        reason.toLowerCase();
+
+
+    if (
+        text.includes("declined") ||
+        text.includes("bank")
+    ) {
+
+        return "BANK_DECLINED";
+
+    }
+
+
+    if (
+        text.includes("insufficient") ||
+        text.includes("balance")
+    ) {
+
+        return "INSUFFICIENT_BALANCE";
+
+    }
+
+
+    if (
+        text.includes("timeout") ||
+        text.includes("timed out")
+    ) {
+
+        return "TIMEOUT";
+
+    }
+
+
+    if (
+        text.includes("network") ||
+        text.includes("connection")
+    ) {
+
+        return "NETWORK_ERROR";
+
+    }
+
+
+    if (
+        text.includes("cancel") ||
+        text.includes("closed")
+    ) {
+
+        return "USER_CANCELLED";
+
+    }
+
+
+    return "UNKNOWN";
+
+}
+
+
+/* ==================================================
+   CREATE ORDER
+================================================== */
+
+async function createOrder(recoveryOrderId = null) {
+
+    const amount =
+        parseFloat(
+            document.getElementById(
+                "amount"
+            ).value
+        );
+
+
+    hideRecovery();
+
+
+    if (
+        !amount ||
+        amount <= 0
+    ) {
+
+        showMessage(
+            "Please enter a valid amount.",
+            "error"
+        );
+
+        return;
+    }
+
+
+    try {
+
+        disablePayButton(
+            true
+        );
+
+
+        showMessage(
+            "Creating Razorpay order...",
+            "info"
+        );
+
+
+        paymentFailureHandled =
+            false;
+
+
+        const response =
+            await fetch(
+                "/create-order",
+                {
+
+                    method: "POST",
+
+                    headers: {
+                        "Content-Type":
+                            "application/json"
+                    },
+
+                    body:
+                        JSON.stringify({
+                            amount: amount,
+                            recovery_of_order_id: recoveryOrderId
+                        })
+
+                }
+            );
+
+
+        const data =
+            await response.json();
+
+
+        if (!data.success) {
+
+            showMessage(
+                data.error ||
+                "Unable to create order.",
+                "error"
+            );
+
+            disablePayButton(
+                false
+            );
+
+            return;
+        }
+
+
+        /* RAZORPAY */
+
+        const options = {
+
+            key:
+                data.key_id,
+
+            amount:
+                data.amount,
+
+            currency:
+                data.currency,
+
+            name:
+                "AI Payment Recovery",
+
+            description:
+                "Test Payment",
+
+            order_id:
+                data.order_id,
+
+
+            handler:
+                async function(
+                    response
+                ) {
+
+                    await verifyPayment(
+                        response
+                    );
+
+                },
+
+
+            modal: {
+
+                ondismiss:
+                    function() {
+
+                        if (
+                            paymentFailureHandled
+                        ) {
+
+                            return;
+
+                        }
+
+
+                        showMessage(
+                            "Payment window closed.",
+                            "error"
+                        );
+
+
+                        disablePayButton(
+                            false
+                        );
+
+                    }
+
+            }
+
+        };
+
+
+        const razorpay =
+            new Razorpay(
+                options
+            );
+
+
+        razorpay.on(
+            "payment.failed",
+            async function(
+                response
+            ) {
+
+                paymentFailureHandled =
+                    true;
+
+
+                const error =
+                    response.error ||
+                    {};
+
+
+                const description =
+                    error.description ||
+                    "Payment failed";
+
+
+                const errorCode =
+                    error.code ||
+                    "PAYMENT_FAILED";
+
+
+                lastFailedOrderId =
+                    data.order_id;
+
+
+                try {
+
+                    razorpay.close();
+
+                }
+
+                catch (e) {
+
+                    console.log(
+                        "Checkout already closed."
+                    );
+
+                }
+
+
+                await new Promise(
+                    function(resolve) {
+
+                        setTimeout(
+                            resolve,
+                            300
+                        );
+
+                    }
+                );
+
+
+                await handlePaymentFailure(
+
+                    data.order_id,
+
+                    description,
+
+                    errorCode
+
+                );
+
+
+                disablePayButton(
+                    false
+                );
+
+
+                /*
+                 * Refresh dashboard so
+                 * FAILED status appears.
+                 */
+
+                await loadDashboard();
+
+            }
+        );
+
+
+        razorpay.open();
+
+    }
+
+
+    catch (error) {
+
+        console.error(
+            error
+        );
+
+
+        showMessage(
+            "Something went wrong while creating the payment.",
+            "error"
+        );
+
+
+        disablePayButton(
+            false
+        );
+
+    }
+
+}
+
+
+/* ==================================================
+   VERIFY PAYMENT
+================================================== */
+
+async function verifyPayment(
+    response
+) {
+
+    try {
+
+        showMessage(
+            "Verifying payment...",
+            "info"
+        );
+
+
+        const verifyResponse =
+            await fetch(
+                "/verify-payment",
+                {
+
+                    method: "POST",
+
+                    headers: {
+                        "Content-Type":
+                            "application/json"
+                    },
+
+                    body:
+                        JSON.stringify({
+
+                            razorpay_order_id:
+                                response
+                                    .razorpay_order_id,
+
+                            razorpay_payment_id:
+                                response
+                                    .razorpay_payment_id,
+
+                            razorpay_signature:
+                                response
+                                    .razorpay_signature
+
+                        })
+
+                }
+            );
+
+
+        const result =
+            await verifyResponse.json();
+
+
+        if (
+            result.success
+        ) {
+
+            showMessage(
+
+                result.recovered
+                    ? "Payment Recovered Successfully! Payment ID: " + result.payment_id
+                    : "Payment Successful! Payment ID: " + result.payment_id,
+
+                "success"
+
+            );
+
+
+            hideRecovery();
+
+
+            /*
+             * Refresh dashboard.
+             */
+
+            await loadDashboard();
+
+        }
+
+
+        else {
+
+            showMessage(
+                "Payment verification failed.",
+                "error"
+            );
+
+        }
+
+    }
+
+
+    catch (error) {
+
+        console.error(
+            error
+        );
+
+
+        showMessage(
+            "Payment verification error.",
+            "error"
+        );
+
+    }
+
+
+    finally {
+
+        disablePayButton(
+            false
+        );
+
+    }
+
+}
+
+
+/* ==================================================
+   HANDLE FAILURE
+================================================== */
+
+async function handlePaymentFailure(
+
+    orderId,
+
+    errorDescription,
+
+    errorCode
+
+) {
+
+    hideRecovery();
+
+
+    showMessage(
+        "Payment failed. Analyzing the failure...",
+        "error"
+    );
+
+
+    try {
+
+        /* FAILURE ANALYSIS */
+
+        const analysisResponse =
+            await fetch(
+                "/analyze-failure",
+                {
+
+                    method: "POST",
+
+                    headers: {
+                        "Content-Type":
+                            "application/json"
+                    },
+
+                    body:
+                        JSON.stringify({
+
+                            razorpay_order_id:
+                                orderId,
+
+                            error_description:
+                                errorDescription,
+
+                            error_code:
+                                errorCode
+
+                        })
+
+                }
+            );
+
+
+        const analysis =
+            await analysisResponse.json();
+
+
+        if (
+            !analysis.success
+        ) {
+
+            showMessage(
+                analysis.error ||
+                "Unable to analyze payment failure.",
+                "error"
+            );
+
+            return;
+        }
+
+
+        /* RECOVERY ENGINE */
+
+        const recoveryResponse =
+            await fetch(
+                "/recovery-recommendation",
+                {
+
+                    method: "POST",
+
+                    headers: {
+                        "Content-Type":
+                            "application/json"
+                    },
+
+                    body:
+                        JSON.stringify({
+
+                            razorpay_order_id:
+                                orderId,
+
+                            failure_category:
+                                analysis.category,
+
+                            severity:
+                                analysis.severity,
+
+                            failure_reason:
+                                analysis.failure_reason
+
+                        })
+
+                }
+            );
+
+
+        const recovery =
+            await recoveryResponse.json();
+
+
+        if (
+            !recovery.success
+        ) {
+
+            showMessage(
+                "Recovery recommendation failed.",
+                "error"
+            );
+
+            return;
+        }
+
+
+        showRecoveryCard(
+            analysis,
+            recovery
+        );
+
+
+        showMessage(
+            "Payment failed. Recovery recommendation generated.",
+            "error"
+        );
+
+    }
+
+
+    catch (error) {
+
+        console.error(
+            error
+        );
+
+
+        showMessage(
+            "Unable to generate recovery recommendation.",
+            "error"
+        );
+
+    }
+
+}
+
+
+/* ==================================================
+   RECOVERY CARD
+================================================== */
+
+function showRecoveryCard(
+    analysis,
+    recovery
+) {
+
+    document.getElementById(
+        "recoveryCard"
+    ).style.display =
+        "block";
+
+
+    document.getElementById(
+        "failureReason"
+    ).innerText =
+        analysis.failure_reason ||
+        "Payment failed";
+
+
+    document.getElementById(
+        "failureCategory"
+    ).innerText =
+        analysis.category ||
+        recovery.failure_category ||
+        "UNKNOWN";
+
+
+    document.getElementById(
+        "recommendedMethod"
+    ).innerText =
+        recovery.recommended_payment_method ||
+        "UPI";
+
+
+    document.getElementById(
+        "priority"
+    ).innerText =
+        recovery.priority ||
+        "MEDIUM";
+
+
+    document.getElementById(
+        "recoveryMessage"
+    ).innerText =
+        recovery.message ||
+        "Please try the payment again.";
+
+}
+
+
+/* ==================================================
+   RETRY
+================================================== */
+
+function retryPayment() {
+
+    const amount =
+        parseFloat(
+            document.getElementById(
+                "amount"
+            ).value
+        );
+
+
+    if (
+        !amount ||
+        amount <= 0
+    ) {
+
+        showMessage(
+            "Please enter a valid amount.",
+            "error"
+        );
+
+        return;
+    }
+
+
+    hideRecovery();
+
+
+    showMessage(
+        "Starting payment retry...",
+        "info"
+    );
+
+
+    setTimeout(
+        function() {
+
+            createOrder(lastFailedOrderId);
+
+        },
+        500
+    );
+
+}
+
+
+/* ==================================================
+   HELPERS
+================================================== */
+
+function showMessage(
+    text,
+    type
+) {
+
+    const message =
+        document.getElementById(
+            "message"
+        );
+
+
+    message.innerText =
+        text;
+
+
+    message.className =
+        type;
+
+
+    message.style.display =
+        "block";
+
+}
+
+
+function hideRecovery() {
+
+    document.getElementById(
+        "recoveryCard"
+    ).style.display =
+        "none";
+
+}
+
+
+function disablePayButton(
+    disabled
+) {
+
+    const button =
+        document.getElementById(
+            "payButton"
+        );
+
+
+    button.disabled =
+        disabled;
+
+
+    button.innerText =
+        disabled
+            ? "Processing..."
+            : "Pay Now";
+
+}
+
+
+function formatAmount(
+    amount
+) {
+
+    const number =
+        Number(amount || 0);
+
+
+    return number.toLocaleString(
+        "en-IN",
+        {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2
+        }
+    );
+
+}
+
+
+function escapeHtml(
+    value
+) {
+
+    const div =
+        document.createElement(
+            "div"
+        );
+
+
+    div.innerText =
+        value == null
+            ? ""
+            : String(value);
+
+
+    return div.innerHTML;
+
+}
+
+</script>
+
+</body>
+
+</html>
