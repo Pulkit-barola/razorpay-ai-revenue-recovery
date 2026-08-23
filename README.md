@@ -238,4 +238,3 @@ payment.db
 **Pulkit Barola**
 
 AI Payment Recovery — Razorpay Buildathon
-```
