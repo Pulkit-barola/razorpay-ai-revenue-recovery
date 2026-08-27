@@ -4,3 +4,4 @@ __pycache__/
 payment.db
 .venv/
 venv/
+test_gemini.py

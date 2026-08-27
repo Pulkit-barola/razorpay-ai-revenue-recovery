@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from pathlib import Path
 from dotenv import load_dotenv
@@ -7,6 +8,8 @@ from dotenv import load_dotenv
 import os
 import razorpay
 import sqlite3
+import requests
+import json
 from datetime import datetime
 
 
@@ -26,6 +29,8 @@ app = FastAPI(
     description="AI-powered Razorpay payment recovery system",
     version="1.0.0"
 )
+
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
 # =========================================================
@@ -69,6 +74,9 @@ def init_database():
             failure_reason TEXT,
             recovery_of_order_id TEXT,
             recovered_at TEXT,
+            escalated INTEGER DEFAULT 0,
+            recommendation_en TEXT,
+            recommendation_hinglish TEXT,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         )
@@ -94,6 +102,24 @@ def init_database():
         conn.execute("""
             ALTER TABLE payments
             ADD COLUMN recovered_at TEXT
+        """)
+
+    if "escalated" not in column_names:
+        conn.execute("""
+            ALTER TABLE payments
+            ADD COLUMN escalated INTEGER DEFAULT 0
+        """)
+
+    if "recommendation_en" not in column_names:
+        conn.execute("""
+            ALTER TABLE payments
+            ADD COLUMN recommendation_en TEXT
+        """)
+
+    if "recommendation_hinglish" not in column_names:
+        conn.execute("""
+            ALTER TABLE payments
+            ADD COLUMN recommendation_hinglish TEXT
         """)
 
     conn.commit()
@@ -641,6 +667,60 @@ def recovery_stats():
 # FAILURE ANALYSIS
 # =========================================================
 
+def analyze_failure_with_gemini(failure_reason: str):
+    gemini_key = os.getenv("GEMINI_API_KEY")
+    if not gemini_key:
+        print("Gemini: No API key found, using fallback.")
+        return None
+
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={gemini_key}"
+    
+    prompt = f"""You are an expert AI payment recovery assistant for Razorpay.
+Analyze the following payment failure reason: "{failure_reason}"
+
+Provide the output strictly in JSON format with the following keys:
+- category: Choose exactly one of: "BANK_DECLINED", "INSUFFICIENT_BALANCE", "TIMEOUT", "NETWORK_ERROR", "USER_CANCELLED", or "UNKNOWN".
+- severity: "LOW", "MEDIUM", "HIGH", or "URGENT".
+- recommendation_en: A short English recommendation for recovery.
+- recommendation_hinglish: A friendly Hinglish recommendation for recovery.
+
+Output ONLY the raw JSON object, no markdown formatting."""
+    
+    headers = {"Content-Type": "application/json"}
+    payload = {
+        "contents": [{
+            "parts": [{
+                "text": prompt
+            }]
+        }]
+    }
+    
+    try:
+        response = requests.post(url, headers=headers, json=payload, timeout=30)
+        print(f"Gemini API Status: {response.status_code}")
+        if response.status_code == 200:
+            res_data = response.json()
+            text = res_data['candidates'][0]['content']['parts'][0]['text']
+            
+            # Clean up potential markdown formatting
+            text = text.strip()
+            if text.startswith("```json"):
+                text = text[7:]
+            if text.startswith("```"):
+                text = text[3:]
+            if text.endswith("```"):
+                text = text[:-3]
+            text = text.strip()
+            
+            print(f"Gemini parsed text: {text[:200]}")
+            return json.loads(text)
+        else:
+            print(f"Gemini API Error Response: {response.text[:300]}")
+    except Exception as e:
+        print(f"Gemini API Exception: {e}")
+    return None
+
+
 def analyze_failure(failure_reason: str):
 
     reason = failure_reason.lower()
@@ -735,9 +815,24 @@ def analyze_failed_payment(data: PaymentFailure):
             or "Payment failed"
         )
 
-        analysis = analyze_failure(
-            failure_reason
-        )
+        category = None
+        severity = None
+        rec_en = None
+        rec_hinglish = None
+
+        ai_analysis = analyze_failure_with_gemini(failure_reason)
+        if ai_analysis:
+            category = ai_analysis.get("category", "UNKNOWN").upper()
+            severity = ai_analysis.get("severity", "MEDIUM").upper()
+            rec_en = ai_analysis.get("recommendation_en")
+            rec_hinglish = ai_analysis.get("recommendation_hinglish")
+
+        if not category:
+            fallback = analyze_failure(failure_reason)
+            category = fallback["category"]
+            severity = fallback["severity"]
+            rec_en = fallback["recommendation"]
+            rec_hinglish = "Payment fail ho gaya hai, kripya retry karein ya doosra method use karein."
 
         now = datetime.now().isoformat()
 
@@ -746,10 +841,14 @@ def analyze_failed_payment(data: PaymentFailure):
             SET
                 status = 'FAILED',
                 failure_reason = ?,
+                recommendation_en = ?,
+                recommendation_hinglish = ?,
                 updated_at = ?
             WHERE order_id = ?
         """, (
             failure_reason,
+            rec_en,
+            rec_hinglish,
             now,
             data.razorpay_order_id
         ))
@@ -773,11 +872,13 @@ def analyze_failed_payment(data: PaymentFailure):
 
             "error_code": data.error_code,
 
-            "category": analysis["category"],
+            "category": category,
 
-            "severity": analysis["severity"],
+            "severity": severity,
 
-            "recommendation": analysis["recommendation"]
+            "recommendation": rec_en,
+            
+            "recommendation_hinglish": rec_hinglish
 
         }
 
@@ -910,3 +1011,126 @@ def recovery_recommendation(data: RecoveryRequest):
         "message": message
 
     }
+
+
+# =========================================================
+# BATCH SIMULATION
+# =========================================================
+
+@app.post("/simulate-batch")
+def simulate_batch():
+    try:
+        now = datetime.now().isoformat()
+        conn = get_db()
+        
+        mock_failures = [
+            ("The bank declined the transaction as the card is inactive.", "BANK_DECLINED"),
+            ("The transaction could not be processed due to insufficient funds.", "INSUFFICIENT_BALANCE"),
+            ("Customer closed the payment window before entering OTP.", "USER_CANCELLED"),
+            ("Payment request timed out due to bank network latency.", "TIMEOUT"),
+            ("Connection lost between merchant and gateway.", "NETWORK_ERROR"),
+            ("Incorrect PIN entered by user.", "INVALID_DETAILS"),
+            ("Insufficient balance in UPI linked account.", "INSUFFICIENT_BALANCE"),
+            ("Card transaction declined by issuer bank limit.", "BANK_DECLINED"),
+            ("User cancelled UPI transaction.", "USER_CANCELLED"),
+            ("Payment gateway timed out during processing.", "TIMEOUT")
+        ]
+        
+        simulated_orders = []
+        
+        for idx, (reason, category) in enumerate(mock_failures):
+            order_id = f"order_sim_{random.randint(100000, 999999)}_{idx}"
+            amount = round(random.uniform(100, 5000), 2)
+            
+            # 1. Create failed payment record
+            conn.execute("""
+                INSERT INTO payments
+                (order_id, payment_id, amount, currency, status, failure_reason, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (order_id, None, amount, "INR", "FAILED", reason, now, now))
+            
+            # Run local analysis to set initial recommendations
+            analysis = analyze_failure(reason)
+            rec_en = analysis["recommendation"]
+            rec_hinglish = "Payment fail ho gaya hai, kripya doosra account use karein."
+            
+            conn.execute("""
+                UPDATE payments
+                SET recommendation_en = ?, recommendation_hinglish = ?
+                WHERE order_id = ?
+            """, (rec_en, rec_hinglish, order_id))
+            
+            simulated_orders.append((order_id, amount))
+            
+        # 2. Simulate recovery for 4 out of 10 orders (40% recovery rate)
+        recovered_indices = random.sample(range(10), 4)
+        for idx in recovered_indices:
+            orig_order_id, amount = simulated_orders[idx]
+            recovery_order_id = f"order_sim_rec_{random.randint(100000, 999999)}_{idx}"
+            payment_id = f"pay_sim_{random.randint(1000000, 9999999)}"
+            
+            # Create successful recovery payment
+            conn.execute("""
+                INSERT INTO payments
+                (order_id, payment_id, amount, currency, status, failure_reason, recovery_of_order_id, recovered_at, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (recovery_order_id, payment_id, amount, "INR", "SUCCESS", None, orig_order_id, now, now, now))
+            
+            # Update original failed payment to RECOVERED
+            conn.execute("""
+                UPDATE payments
+                SET status = 'RECOVERED', payment_id = ?, recovered_at = ?, updated_at = ?
+                WHERE order_id = ?
+            """, (payment_id, now, now, orig_order_id))
+            
+        conn.commit()
+        conn.close()
+        return {"success": True, "message": "Successfully simulated 10 payment recovery cohort cases."}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+# =========================================================
+# AUDIT TRAIL EXPORT
+# =========================================================
+
+from fastapi.responses import StreamingResponse
+import io
+import csv
+import random
+
+@app.get("/export-audit")
+def export_audit():
+    try:
+        conn = get_db()
+        cursor = conn.execute("""
+            SELECT id, order_id, payment_id, amount, currency, status, failure_reason, recovery_of_order_id, recovered_at, escalated, recommendation_en, recommendation_hinglish, created_at, updated_at
+            FROM payments
+            ORDER BY id DESC
+        """)
+        rows = cursor.fetchall()
+        conn.close()
+        
+        output = io.StringIO()
+        writer = csv.writer(output)
+        
+        # Write header
+        writer.writerow([
+            "ID", "Order ID", "Payment ID", "Amount", "Currency", "Status", 
+            "Failure Reason", "Recovery of Order ID", "Recovered At", "Escalated",
+            "Recommendation (English)", "Recommendation (Hinglish)", "Created At", "Updated At"
+        ])
+        
+        # Write data rows
+        for row in rows:
+            writer.writerow(list(row))
+            
+        output.seek(0)
+        
+        return StreamingResponse(
+            io.StringIO(output.getvalue()), 
+            media_type="text/csv", 
+            headers={"Content-Disposition": "attachment; filename=payment_recovery_audit_trail.csv"}
+        )
+    except Exception as e:
+        return {"success": False, "error": str(e)}
