@@ -6,8 +6,6 @@ let lastFailedOrderId = null;
 
 let paymentFailureHandled = false;
 
-let retryAttemptsCount = 0;
-
 
 /* ==================================================
    PAGE LOAD
@@ -215,6 +213,9 @@ function renderPaymentTable(
                 );
 
 
+            const isEscalated = payment.escalated === 1;
+            const escalatedBadge = isEscalated ? ` <span class="status status-failed" style="background-color: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; margin-left: 5px; font-size: 10px; padding: 2px 6px;">ESCALATED</span>` : '';
+
             row.innerHTML = `
 
                 <td>
@@ -240,6 +241,7 @@ function renderPaymentTable(
                             "UNKNOWN"
                         )}
                     </span>
+                    ${escalatedBadge}
 
                 </td>
 
@@ -465,7 +467,6 @@ function getFailureCategory(
 async function createOrder(recoveryOrderId = null) {
 
     if (recoveryOrderId === null) {
-        retryAttemptsCount = 0;
         document.getElementById("escalationStatus").style.display = "none";
         const retryBtn = document.querySelector(".retry-button");
         if (retryBtn) {
@@ -650,7 +651,8 @@ async function createOrder(recoveryOrderId = null) {
                     "Payment failed";
 
 
-                const errorCode =
+                 const errorCode =
+                    error.reason ||
                     error.code ||
                     "PAYMENT_FAILED";
 
@@ -1073,6 +1075,29 @@ function showRecoveryCard(
         analysis.recommendation_hinglish ||
         "Payment fail ho gaya hai. Kripya doosra card ya UPI account use karein.";
 
+    // Handle escalation status and button text dynamically
+    const escalationStatus = document.getElementById("escalationStatus");
+    const retryBtn = document.querySelector(".retry-button");
+
+    if (analysis.escalated || analysis.retry_count >= 2) {
+        if (escalationStatus) {
+            escalationStatus.style.display = "block";
+        }
+        if (retryBtn) {
+            retryBtn.disabled = true;
+            retryBtn.innerText = "Escalated to Support";
+        }
+    } else {
+        if (escalationStatus) {
+            escalationStatus.style.display = "none";
+        }
+        if (retryBtn) {
+            retryBtn.disabled = false;
+            const nextAttempt = (analysis.retry_count || 0) + 2; // original failed is 0, so next attempt is 2nd
+            retryBtn.innerText = `Retry Payment (Attempt ${nextAttempt}/3)`;
+        }
+    }
+
 }
 
 
@@ -1103,23 +1128,11 @@ function retryPayment() {
         return;
     }
 
-    retryAttemptsCount++;
-    if (retryAttemptsCount >= 3) {
-        document.getElementById("escalationStatus").style.display = "block";
-        const retryBtn = document.querySelector(".retry-button");
-        if (retryBtn) {
-            retryBtn.disabled = true;
-            retryBtn.innerText = "Escalated to Support";
-        }
-        showMessage("Max retry limit reached. This case has been escalated to support.", "error");
-        return;
-    }
-
     hideRecovery();
 
 
     showMessage(
-        "Starting payment retry (Attempt " + retryAttemptsCount + "/3)...",
+        "Starting payment retry...",
         "info"
     );
 

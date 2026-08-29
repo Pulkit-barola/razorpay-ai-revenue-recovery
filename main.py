@@ -10,6 +10,7 @@ import razorpay
 import sqlite3
 import requests
 import json
+import random
 from datetime import datetime
 
 
@@ -218,6 +219,31 @@ async def create_order(data: OrderRequest):
         }
 
     try:
+
+        if data.recovery_of_order_id:
+            conn = get_db()
+            retry_count = 0
+            curr_id = data.recovery_of_order_id
+            is_escalated = False
+            while curr_id:
+                row = conn.execute("SELECT recovery_of_order_id, escalated FROM payments WHERE order_id = ?", (curr_id,)).fetchone()
+                if row:
+                    if row["escalated"] == 1:
+                        is_escalated = True
+                    if row["recovery_of_order_id"]:
+                        retry_count += 1
+                        curr_id = row["recovery_of_order_id"]
+                    else:
+                        break
+                else:
+                    break
+            conn.close()
+
+            if is_escalated or retry_count >= 2:
+                return {
+                    "success": False,
+                    "error": "Payment recovery escalated. No more retries allowed."
+                }
 
         amount_in_paise = int(round(data.amount * 100))
 
@@ -721,63 +747,108 @@ Output ONLY the raw JSON object, no markdown formatting."""
     return None
 
 
-def analyze_failure(failure_reason: str):
+ERROR_CODE_MAPPING = {
+    "payment_declined": "BANK_DECLINED",
+    "issuer_declined": "BANK_DECLINED",
+    "card_declined": "BANK_DECLINED",
+    "bank_declined": "BANK_DECLINED",
+    "insufficient_funds": "INSUFFICIENT_BALANCE",
+    "insufficient_balance": "INSUFFICIENT_BALANCE",
+    "payment_cancelled": "USER_CANCELLED",
+    "user_cancelled": "USER_CANCELLED",
+    "payment_timed_out": "TIMEOUT",
+    "timed_out": "TIMEOUT",
+    "gateway_timeout": "TIMEOUT",
+    "network_failure": "NETWORK_ERROR",
+    "network_error": "NETWORK_ERROR",
+    "invalid_vpa": "INVALID_DETAILS",
+    "upi_invalid_vpa": "INVALID_DETAILS",
+    "vpa_not_found": "INVALID_DETAILS",
+    "card_expired": "INVALID_DETAILS",
+    "invalid_card_details": "INVALID_DETAILS",
+    "incorrect_pin": "INVALID_DETAILS"
+}
 
-    reason = failure_reason.lower()
 
-    if "declined" in reason or "bank" in reason:
-
+def get_fallback_data_by_category(category: str):
+    category = category.upper()
+    if category == "BANK_DECLINED":
         return {
             "category": "BANK_DECLINED",
             "severity": "MEDIUM",
-            "recommendation":
-                "Try another payment method such as UPI or NetBanking."
+            "recommendation": "Try another payment method such as UPI or NetBanking.",
+            "recommendation_hinglish": "Aapke bank ne transaction decline kar diya hai. Kripya doosra card ya UPI account use karein."
         }
-
-    elif "insufficient" in reason or "balance" in reason:
-
+    elif category == "INSUFFICIENT_BALANCE":
         return {
             "category": "INSUFFICIENT_BALANCE",
             "severity": "HIGH",
-            "recommendation":
-                "Ask the customer to use another account or payment method."
+            "recommendation": "Ask the customer to use another account or payment method.",
+            "recommendation_hinglish": "Account mein balance kam hai. Kripya balance check karein ya doosra account use karein."
         }
-
-    elif "cancel" in reason or "closed" in reason:
-
+    elif category == "USER_CANCELLED":
         return {
             "category": "USER_CANCELLED",
             "severity": "LOW",
-            "recommendation":
-                "Encourage the customer to retry the payment."
+            "recommendation": "Encourage the customer to retry the payment.",
+            "recommendation_hinglish": "Payment window closed/cancel ho gayi thi. Kripya process doobara retry karein."
         }
-
-    elif "timeout" in reason or "timed out" in reason:
-
+    elif category == "TIMEOUT":
         return {
             "category": "TIMEOUT",
             "severity": "MEDIUM",
-            "recommendation":
-                "Retry the payment after a short delay."
+            "recommendation": "Retry the payment after a short delay.",
+            "recommendation_hinglish": "Payment request timed out ho gaya hai. Kripya thodi der baad firse try karein."
         }
-
-    elif "network" in reason or "connection" in reason:
-
+    elif category == "NETWORK_ERROR":
         return {
             "category": "NETWORK_ERROR",
             "severity": "MEDIUM",
-            "recommendation":
-                "Check the internet connection and retry the payment."
+            "recommendation": "Check the internet connection and retry the payment.",
+            "recommendation_hinglish": "Network connection weak hai. Kripya internet check karke doobara try karein."
         }
-
+    elif category == "INVALID_DETAILS":
+        return {
+            "category": "INVALID_DETAILS",
+            "severity": "MEDIUM",
+            "recommendation": "Verify payment details and try again.",
+            "recommendation_hinglish": "Payment details galat hain (jaise PIN ya UPI VPA). Details check karke doobara try karein."
+        }
     else:
-
         return {
             "category": "UNKNOWN",
             "severity": "MEDIUM",
-            "recommendation":
-                "Try another payment method or retry the payment."
+            "recommendation": "Try another payment method or retry the payment.",
+            "recommendation_hinglish": "Payment fail ho gaya hai. Kripya doosra payment option try karein."
         }
+
+
+def analyze_failure(failure_reason: str, error_code: str = None):
+    if error_code:
+        code_lower = error_code.lower()
+        if code_lower in ERROR_CODE_MAPPING:
+            return get_fallback_data_by_category(ERROR_CODE_MAPPING[code_lower])
+        for key, category in ERROR_CODE_MAPPING.items():
+            if key in code_lower:
+                return get_fallback_data_by_category(category)
+
+    reason = failure_reason.lower()
+    if "declined" in reason or "bank" in reason or "issuer" in reason:
+        category = "BANK_DECLINED"
+    elif "insufficient" in reason or "balance" in reason or "funds" in reason:
+        category = "INSUFFICIENT_BALANCE"
+    elif "cancel" in reason or "closed" in reason:
+        category = "USER_CANCELLED"
+    elif "timeout" in reason or "timed out" in reason or "latency" in reason:
+        category = "TIMEOUT"
+    elif "network" in reason or "connection" in reason or "lost" in reason:
+        category = "NETWORK_ERROR"
+    elif "pin" in reason or "vpa" in reason or "vpa_not_found" in reason or "details" in reason or "expired" in reason or "limit" in reason:
+        category = "INVALID_DETAILS"
+    else:
+        category = "UNKNOWN"
+
+    return get_fallback_data_by_category(category)
 
 
 # =========================================================
@@ -822,17 +893,34 @@ def analyze_failed_payment(data: PaymentFailure):
 
         ai_analysis = analyze_failure_with_gemini(failure_reason)
         if ai_analysis:
-            category = ai_analysis.get("category", "UNKNOWN").upper()
-            severity = ai_analysis.get("severity", "MEDIUM").upper()
+            category_val = ai_analysis.get("category") or "UNKNOWN"
+            category = str(category_val).upper()
+            severity_val = ai_analysis.get("severity") or "MEDIUM"
+            severity = str(severity_val).upper()
             rec_en = ai_analysis.get("recommendation_en")
             rec_hinglish = ai_analysis.get("recommendation_hinglish")
 
-        if not category:
-            fallback = analyze_failure(failure_reason)
-            category = fallback["category"]
-            severity = fallback["severity"]
-            rec_en = fallback["recommendation"]
-            rec_hinglish = "Payment fail ho gaya hai, kripya retry karein ya doosra method use karein."
+        if not category or category == "UNKNOWN" or not rec_en or not rec_hinglish:
+            fallback = analyze_failure(failure_reason, data.error_code)
+            category = category or fallback["category"]
+            severity = severity or fallback["severity"]
+            rec_en = rec_en or fallback["recommendation"]
+            rec_hinglish = rec_hinglish or fallback["recommendation_hinglish"]
+
+        # Get the retry count for this order
+        retry_count = 0
+        curr_id = data.razorpay_order_id
+        while curr_id:
+            row = conn.execute("SELECT recovery_of_order_id FROM payments WHERE order_id = ?", (curr_id,)).fetchone()
+            if row and row["recovery_of_order_id"]:
+                retry_count += 1
+                curr_id = row["recovery_of_order_id"]
+            else:
+                break
+
+        escalated_db = 0
+        if retry_count >= 2:
+            escalated_db = 1
 
         now = datetime.now().isoformat()
 
@@ -843,12 +931,14 @@ def analyze_failed_payment(data: PaymentFailure):
                 failure_reason = ?,
                 recommendation_en = ?,
                 recommendation_hinglish = ?,
+                escalated = ?,
                 updated_at = ?
             WHERE order_id = ?
         """, (
             failure_reason,
             rec_en,
             rec_hinglish,
+            escalated_db,
             now,
             data.razorpay_order_id
         ))
@@ -878,7 +968,11 @@ def analyze_failed_payment(data: PaymentFailure):
 
             "recommendation": rec_en,
             
-            "recommendation_hinglish": rec_hinglish
+            "recommendation_hinglish": rec_hinglish,
+
+            "retry_count": retry_count,
+
+            "escalated": escalated_db
 
         }
 
@@ -1049,10 +1143,19 @@ def simulate_batch():
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """, (order_id, None, amount, "INR", "FAILED", reason, now, now))
             
-            # Run local analysis to set initial recommendations
-            analysis = analyze_failure(reason)
-            rec_en = analysis["recommendation"]
-            rec_hinglish = "Payment fail ho gaya hai, kripya doosra account use karein."
+            # Try Gemini first for each simulation
+            rec_en = None
+            rec_hinglish = None
+            ai_analysis = analyze_failure_with_gemini(reason)
+            if ai_analysis:
+                rec_en = ai_analysis.get("recommendation_en")
+                rec_hinglish = ai_analysis.get("recommendation_hinglish")
+            
+            # Fall back to improved local category-specific analysis
+            if not rec_en or not rec_hinglish:
+                analysis = analyze_failure(reason)
+                rec_en = rec_en or analysis["recommendation"]
+                rec_hinglish = rec_hinglish or analysis["recommendation_hinglish"]
             
             conn.execute("""
                 UPDATE payments
@@ -1097,7 +1200,6 @@ def simulate_batch():
 from fastapi.responses import StreamingResponse
 import io
 import csv
-import random
 
 @app.get("/export-audit")
 def export_audit():
